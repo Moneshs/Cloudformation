@@ -1,0 +1,333 @@
+Description: Creating a Infrastructure using Cloud Formation
+
+Parameters:  
+
+  ApplicationName: 
+    NoEcho: false
+    Description: chatapp Name
+    Type: String
+    MinLength: 1
+    MaxLength: 20
+    AllowedPattern: ^[a-zA-Z0-9]*$
+
+  DBAllocatedStorage: 
+    NoEcho: false
+    Default: 20
+    Description: Storage for Database
+    Type: Number
+    MinValue: 5
+    MaxValue: 20
+
+  DBName: 
+    NoEcho: false
+    Description: Database Name
+    Type: String
+    MinLength: 3
+    MaxLength: 20
+    AllowedPattern: ^[a-zA-Z0-9]*$
+    ConstraintDescription: Must begin with a letter and contain alphanumeric characters.
+
+  DBUsername: 
+    NoEcho: false
+    Description: User name for DataBase
+    Type: String
+    MinLength: 5
+    MaxLength: 20
+    AllowedPattern: ^[a-zA-Z0-9]*$
+    ConstraintDescription: Must begin with a letter and contain alphanumeric characters.
+
+  DBPassword: 
+    NoEcho: true
+    Description: DataBase Password
+    Type: String
+    MinLength: 6
+    MaxLength: 20
+    AllowedPattern: ^[a-zA-Z0-9]*$
+    ConstraintDescription: Must contain only alphanumeric characters.
+
+
+
+Resources:
+ vpccloudformation: 
+  Type: AWS::EC2::VPC
+  Properties: 
+   CidrBlock: '10.0.0.0/16'
+   Tags:   
+   - 
+    Key: Name
+    Value: "cloudformation-vpc"
+
+ 
+ PublicSubnet1:
+  Type: AWS::EC2::Subnet
+  Properties: 
+   AvailabilityZone: ap-south-1a
+   CidrBlock: '10.0.0.0/24'
+   VpcId: !Ref vpccloudformation
+   MapPublicIpOnLaunch: true
+
+
+ PublicSubnet2:
+  Type: AWS::EC2::Subnet
+  Properties: 
+   AvailabilityZone: ap-south-1b
+   CidrBlock: '10.0.1.0/24'
+   VpcId: !Ref vpccloudformation
+   MapPublicIpOnLaunch: true
+
+
+ PrivateSubnet:
+  Type: AWS::EC2::Subnet
+  Properties: 
+   AvailabilityZone: ap-south-1c
+   CidrBlock: '10.0.2.0/24'
+   VpcId: !Ref vpccloudformation
+   MapPublicIpOnLaunch: false
+
+
+ PrivateSubnet2:
+  Type: AWS::EC2::Subnet
+  Properties: 
+   AvailabilityZone: ap-south-1a
+   CidrBlock: '10.0.3.0/24'
+   VpcId: !Ref vpccloudformation
+   MapPublicIpOnLaunch: false
+
+
+ VpcSecurityGroup: 
+  Type: AWS::EC2::SecurityGroup
+  Properties: 
+   GroupName: VPCSG	
+   GroupDescription: VPC SecurityGroup 
+   SecurityGroupIngress:
+   - IpProtocol: tcp
+     ToPort: '22'
+     FromPort: '22'
+     CidrIp: 114.79.180.62/32
+   - IpProtocol: tcp
+     ToPort: '5432'
+     FromPort: '5432'
+     CidrIp: 10.0.0.0/16
+   - IpProtocol: tcp
+     ToPort: '80'
+     FromPort: '80'
+     CidrIp: 0.0.0.0/0
+   VpcId: !Ref vpccloudformation
+
+
+ InstanceSecurityGroup: 
+  Type: AWS::EC2::SecurityGroup
+  Properties: 
+   GroupName: InstanceSG
+   GroupDescription: InstanceSecurityGroup
+   SecurityGroupIngress:
+   - IpProtocol: tcp
+     ToPort: '22'
+     FromPort: '22'
+     CidrIp: 114.79.180.62/32
+   - IpProtocol: tcp
+     ToPort: '25'
+     FromPort: '25'
+     CidrIp:  0.0.0.0/0
+   - IpProtocol: tcp
+     ToPort: '80'
+     FromPort: '80'
+     CidrIp: 0.0.0.0/0
+   VpcId: !Ref vpccloudformation
+ 
+
+ IGW:
+    Type: AWS::EC2::InternetGateway
+ 
+ GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties: 
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref vpccloudformation
+
+ RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref vpccloudformation
+
+ AssigningPublicRouteToGateway:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref RouteTable
+ 
+ RouteTableAssociationWithPublicSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref PublicSubnet1
+
+ RouteTableAssociationWithPublicSubnet2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref PublicSubnet2
+
+ ElasticLoadBalancer:
+   Type: AWS::ElasticLoadBalancing::LoadBalancer
+   Properties: 
+     LoadBalancerName: 'CF-ELB'
+     Listeners: 
+     - LoadBalancerPort: 80
+       InstancePort: 80
+       Protocol: HTTP
+       InstanceProtocol: HTTP
+     HealthCheck:
+       HealthyThreshold: 3
+       UnhealthyThreshold: 3
+       Interval: 30
+       Target: HTTP:80/
+       Timeout: 5
+     SecurityGroups: 
+     - !Ref VpcSecurityGroup
+     Subnets: 
+     - !Ref PublicSubnet1
+     - !Ref PublicSubnet2
+
+ Instanceprofile: 
+   Type: AWS::IAM::InstanceProfile
+   Properties: 
+     Roles: 
+     - EC2-Fullaccess
+
+ LaunchConfiguration: 
+     Type: AWS::AutoScaling::LaunchConfiguration
+     Properties: 
+       LaunchConfigurationName: CF-LaunchConfiguration
+       KeyName: instance
+       ImageId: ami-048d7aed9e2d4d12c
+       InstanceType: t2.micro
+       IamInstanceProfile: !Ref Instanceprofile
+       SecurityGroups: 
+       - !Ref InstanceSecurityGroup
+       
+
+ AutoScalingGroup:
+     Type: AWS::AutoScaling::AutoScalingGroup
+     Properties: 
+       AutoScalingGroupName: chatapp-CF
+       LaunchConfigurationName: !Ref LaunchConfiguration
+       Cooldown: 180
+       DesiredCapacity: '2'
+       MaxSize: '5'
+       MinSize: '2'
+       AvailabilityZones: 
+       - 'ap-south-1a'
+       - 'ap-south-1b'
+       VPCZoneIdentifier: 
+       - !Ref PublicSubnet1 
+       - !Ref PublicSubnet2
+       LoadBalancerNames: 
+       - !Ref ElasticLoadBalancer
+       Tags:
+        - 
+          Key: Name
+          Value: Chatapp-CF
+          PropagateAtLaunch: "true"
+
+ ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      AdjustmentType: "ChangeInCapacity"
+      PolicyType: "StepScaling"
+      MetricAggregationType: "Average"
+      EstimatedInstanceWarmup: "60"
+      StepAdjustments:
+        - MetricIntervalLowerBound: "40"
+          MetricIntervalUpperBound: "60"
+          ScalingAdjustment: "1"
+        - MetricIntervalLowerBound: "60"
+          MetricIntervalUpperBound: "80"
+          ScalingAdjustment: "1" 
+        - MetricIntervalLowerBound: "80"
+          ScalingAdjustment: "2"
+
+ ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      AdjustmentType: "ChangeInCapacity"
+      PolicyType: "StepScaling"
+      MetricAggregationType: "Average"
+      StepAdjustments:
+        - MetricIntervalLowerBound: "35"
+          MetricIntervalUpperBound: "55"
+          ScalingAdjustment: "-1"
+        - MetricIntervalLowerBound: "55"
+          MetricIntervalUpperBound: "75"
+          ScalingAdjustment: "-1"
+        - MetricIntervalLowerBound: "75"
+          ScalingAdjustment: "-2"
+
+
+ DatabaseSG: 
+  Type: AWS::EC2::SecurityGroup
+  Properties: 
+   GroupName: databaseSG
+   GroupDescription: Security Group 
+   SecurityGroupIngress:
+   - IpProtocol: tcp
+     ToPort: '5432'
+     FromPort: '5432'
+     CidrIp: '0.0.0.0/0'
+   VpcId: !Ref vpccloudformation
+ 
+ PrivateSubnetGroup:
+  Type: AWS::RDS::DBSubnetGroup
+  Properties:
+    DBSubnetGroupName: PrivateSubnetGroup
+    DBSubnetGroupDescription: Subnet Group
+    SubnetIds:
+    - !Ref PrivateSubnet
+    - !Ref PrivateSubnet2
+
+
+ MyDB:
+  Type: AWS::RDS::DBInstance
+  Properties:
+    DBInstanceIdentifier: DB
+    DBName: !Ref DBName
+    Engine: Postgres
+    EngineVersion: 11.5
+    VPCSecurityGroups: 
+      - 
+       !Ref DatabaseSG
+    MasterUsername: !Ref DBUsername
+    DBInstanceClass: db.t2.micro
+    AllocatedStorage: !Ref DBAllocatedStorage
+    MasterUserPassword: !Ref DBPassword
+    DBSubnetGroupName: !Ref PrivateSubnetGroup
+
+ CodeDeployApp:
+  Type: AWS::CodeDeploy::Application
+  Properties:
+    ApplicationName: !Ref ApplicationName
+    ComputePlatform: Server
+ 
+
+ DeploymentGroup:
+  Type: AWS::CodeDeploy::DeploymentGroup
+  Properties:
+    ApplicationName: !Ref CodeDeployApp
+    DeploymentGroupName: chatapp-CF
+    ServiceRoleArn: arn:aws:iam::261328727219:role/CodeDeployServiceRole
+    AutoScalingGroups: 
+    - !Ref AutoScalingGroup
+    LoadBalancerInfo: 
+      ElbInfoList: 
+      - Name: !Ref ElasticLoadBalancer
+    DeploymentConfigName: CodeDeployDefault.AllAtOnce
+
+
+Outputs:
+  MyDBEndpointName:
+    Description: Endpoint name for my database
+    Value: !GetAtt MyDB.Endpoint.Address
+
